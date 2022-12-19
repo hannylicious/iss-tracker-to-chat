@@ -1,9 +1,10 @@
 import os
 
+
 class TwitchCredentials(object):
 
-    HOST = 'irc.chat.twitch.tv'
+    HOST = "irc.chat.twitch.tv"
     PORT = 6667
-    NICK = 'YourUsername'
-    PASS = 'YourOauth' #oauth:329857dfasd7d7ae4ja2g2j4
-    CHAN = '#YourUsername'
+    NICK = os.environ.get("TWITCH_NICK")
+    PASS = os.environ.get("TWITCH_OAUTH")
+    CHAN = "#" + str(os.environ.get("TWITCH_CHANNEL"))

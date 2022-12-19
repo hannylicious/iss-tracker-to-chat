@@ -1,61 +1,81 @@
 import requests
-import time
-import json
-import random
-import string
-import socket
-import time
-import re
-from apis.wheretheiss import WhereTheIss
-from apis.googleapi import GoogleApi
-from apis.oceanapi import OceanApi
-from apis.wordsapi import WordsApi
-from apis.twitchapi import TwitchApi
 
-def track_iss(iss_api, google_api, ocean_api, words_api, twitch_api):
+from apis.iss import Iss
+from apis.geography import GeographyInformation
+from apis.wordsapi import Dictionary
+from apis.twitchapi import TwitchApi
+import random
+import time
+
+def shorten_url(url) -> str:
+    """
+    Takes a 'long url' and makes a call to GoTiny API to return a shortened URL
+    :param url:
+    :return:
+    """
+    short_url = requests.post(
+        "https://gotiny.cc/api",
+        json={'input': url}
+    ).json()
+    return short_url[0]['code']
+
+def track_iss(iss, geography, dictionary):
     chosen_word = get_random_word_from_list()
-    word_definition = words_api.get_definition(chosen_word)
-    iss_information = iss_api.get_satellite_location()
-    current_iss_location = google_api.get_geocode(lat=iss_information['latitude'],lng=iss_information['longitude'])
-    if current_iss_location['results']:
+    word_definition = dictionary.get_definition(chosen_word)
+    iss_satellite_information = iss.get_satellite_location()
+    current_iss_location = geography.get_geocode(
+        lat=iss_satellite_information["latitude"], lng=iss_satellite_information["longitude"]
+    )
+    try:
+        country = current_iss_location['results'][0]['country']
+    except KeyError:
+        country = None
+    if country:
         # It's over land!
-        country_shortname = google_api.get_country_shortname(current_iss_location['results'])
-        country_longname = google_api.get_country_longname(current_iss_location['results'])
-        language_code = google_api.get_country_language_code(country_shortname)
-        translated_word = words_api.get_translation(chosen_word, language_code)
-        comment = 'The ISS is over {country_longname} - want to translate a word into their native language? The English word is: "{chosen_word}" - this translates to {translated_word}'.format(country_longname=country_longname, chosen_word=chosen_word, translated_word=translated_word)
+        country_shortname = current_iss_location["results"][0]["countryCode"]
+        language_code = geography.get_country_language_code(country_shortname)
+        translated_word = dictionary.get_translation(chosen_word, language_code)
+        comment = 'The ISS is over {country} - want to translate a word into their native language? The English word is: "{chosen_word}" - this translates to {translated_word}'.format(
+            country=country,
+            chosen_word=chosen_word,
+            translated_word=translated_word,
+        )
         sock = TwitchApi.connect()
         TwitchApi.chat(sock, comment)
-
     else:
-        # It's over the ocean!
-        iss_ocean_location = ocean_api.get_ocean_geocode(lat=iss_information['latitude'],lng=iss_information['longitude'])
-        if iss_ocean_location['response']['GeoObjectCollection']['featureMember'][0]['GeoObject']['metaDataProperty']['GeocoderMetaData']['kind'] == 'hydro':
-            #confirmed water
-            ocean_name = iss_ocean_location['response']['GeoObjectCollection']['featureMember'][0]['GeoObject']['metaDataProperty']['GeocoderMetaData']['text']
-            lat_long_str = str(iss_information['latitude'])+','+str(iss_information['longitude'])
-            map_link = 'https://maps.google.com/maps?q={lat_long_str}'.format(lat_long_str=lat_long_str)
-            map_link = ''.join(map_link.split())
-            short_url = google_api.shorten_url(map_link)
-            comment = "Bummer for you - the ISS is currently over the {ocean_name} (it's actually right here:{map_link}), which doesn't have a proper language, so I can't provide you with a cool translation. Sorry!".format(ocean_name=ocean_name, map_link=short_url)
-            sock = TwitchApi.connect()
-            TwitchApi.chat(sock, comment)
-
-    time.sleep(600)
+        address_label_name = current_iss_location['results'][0]['name']
+        if "Ocean" in address_label_name or "Sea" in address_label_name:
+            # It's over the ocean!
+            # confirmed water
+            lat_long_str = (
+                    str(iss_satellite_information["latitude"])
+                    + "%2C"
+                    + str(iss_satellite_information["longitude"])
+            )
+            map_link = f"https://maps.google.com/maps?q={lat_long_str}"
+            map_link = "".join(map_link.split())
+            # Shorten the URL so twitch doesn't break at the comma in the URL
+            shortened_url_code = shorten_url(map_link)
+            short_url = "https://gotiny.cc/" + shortened_url_code
+            comment = f"""Bummer for you - the ISS is currently over the WATER (it's actually right \
+            here: {short_url}), which doesn't have a proper language, so I can't provide you with a cool translation. \
+            Sorry! """
+    sock = TwitchApi.connect()
+    TwitchApi.chat(sock, comment)
+    time.sleep(160)
 
 
 def get_random_word_from_list():
-    with open('wordlist.txt', 'r') as file:
+    with open("wordlist.txt", "r") as file:
         words = [line.strip() for line in file]
     random_word = random.choice(words)
     return random_word
 
 
 if __name__ == "__main__":
-    iss_api = WhereTheIss()
-    google_api = GoogleApi()
-    ocean_api = OceanApi()
-    words_api = WordsApi()
-    twitch_api = TwitchApi()
     while True:
-        track_iss(iss_api=iss_api, google_api=google_api, ocean_api=ocean_api, words_api=words_api, twitch_api=twitch_api)
+        track_iss(
+            iss=Iss(),
+            geography=GeographyInformation(),
+            dictionary=Dictionary(),
+        )
